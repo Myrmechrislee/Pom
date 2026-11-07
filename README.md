@@ -25,6 +25,8 @@ docker compose ps
 
 Open **http://localhost:3000**. Compose builds the app with the included Dockerfile, waits for MongoDB to become healthy, and runs both services in the background with automatic restarts. Stop any locally running app on port 3000 before starting the stack.
 
+MongoDB publishes no host port. The app reaches it at `mongo:27017` on this project's Compose network, so other Compose stacks can run their own MongoDB instances without a port conflict.
+
 For signed-in features, create `.env` from `.env.example` if you do not already have one, then add the credentials described below. Compose loads `.env` and then `.env.local` when present; `.env.local` takes precedence. Credentials are passed at runtime and excluded from the image. The app container always connects to the bundled database at `mongodb://mongo:27017/pom`, overriding any host-only `MONGODB_URI` in those files. Keep `APP_BASE_URL=http://localhost:3000` for local OAuth callbacks.
 
 After changing code, run `docker compose up -d --build` again. After changing credentials, run `docker compose up -d`. View app logs with `docker compose logs -f app`. Stop the stack with `docker compose down`; MongoDB data stays in the named `pom-data` volume.
@@ -82,8 +84,10 @@ MONGODB_DB=pom
 For local Node.js development with only the database in Docker:
 
 ```sh
-docker compose up -d mongo
+docker compose -f compose.yaml -f compose.local.yaml up -d mongo
 ```
+
+The opt-in `compose.local.yaml` override publishes MongoDB on `127.0.0.1:27017`. If that host port is already in use, prefix the command with `MONGO_PORT=27018` and set your local `MONGODB_URI` to `mongodb://127.0.0.1:27018/pom`.
 
 This command starts only the database. Start Pom separately with `npm run dev` and keep that terminal running while signing in or connecting Todoist. To run both services in Docker, use `docker compose up -d --build` instead. Open `http://localhost:3000`; all OAuth callbacks return to that origin. If the browser says localhost refused the connection, check that the app server is still running on port 3000.
 

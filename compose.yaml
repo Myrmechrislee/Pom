@@ -1,4 +1,4 @@
-# Local Pom stack. Published ports are accessible only over loopback.
+# Pom stack. MongoDB stays on the Compose network; the app is published on loopback.
 services:
   app:
     build: .
@@ -32,8 +32,6 @@ services:
       # Local Docker Desktop workaround for SERVER-121912 on Linux 6.19–7.0.13.
       # Let glibc own rseq so TCMalloc falls back from its incompatible per-CPU cache.
       GLIBC_TUNABLES: "glibc.pthread.rseq=1"
-    ports:
-      - "127.0.0.1:27017:27017"
     volumes:
       - pom-data:/data/db
     healthcheck:

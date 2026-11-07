@@ -1,0 +1,6 @@
+# Opt in to host access when running the app outside Docker:
+# docker compose -f compose.yaml -f compose.local.yaml up -d mongo
+services:
+  mongo:
+    ports:
+      - "127.0.0.1:${MONGO_PORT:-27017}:27017"
