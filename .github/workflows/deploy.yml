@@ -22,25 +22,22 @@ jobs:
           CONTABO_HOST: ${{ secrets.CONTABO_HOST }}
           CONTABO_USER: ${{ secrets.CONTABO_USER }}
           CONTABO_SSH_KEY: ${{ secrets.CONTABO_SSH_KEY }}
-          CONTABO_KNOWN_HOSTS: ${{ secrets.CONTABO_KNOWN_HOSTS }}
           CONTABO_PORT: ${{ secrets.CONTABO_PORT || '22' }}
         run: |
           set -euo pipefail
           : "${CONTABO_HOST:?Set the CONTABO_HOST secret}"
           : "${CONTABO_USER:?Set the CONTABO_USER secret}"
           : "${CONTABO_SSH_KEY:?Set the CONTABO_SSH_KEY secret}"
-          : "${CONTABO_KNOWN_HOSTS:?Set the CONTABO_KNOWN_HOSTS secret}"
 
           ssh_dir="$(mktemp -d)"
           trap 'rm -rf "$ssh_dir"' EXIT
           printf '%s\n' "$CONTABO_SSH_KEY" | tr -d '\r' > "$ssh_dir/key"
-          printf '%s\n' "$CONTABO_KNOWN_HOSTS" > "$ssh_dir/known_hosts"
-          chmod 600 "$ssh_dir/key" "$ssh_dir/known_hosts"
+          chmod 600 "$ssh_dir/key"
 
           ssh -T -i "$ssh_dir/key" -p "$CONTABO_PORT" \
             -o BatchMode=yes \
             -o IdentitiesOnly=yes \
-            -o StrictHostKeyChecking=yes \
+            -o StrictHostKeyChecking=accept-new \
             -o UserKnownHostsFile="$ssh_dir/known_hosts" \
             -o ConnectTimeout=30 \
             -o ServerAliveInterval=15 \
