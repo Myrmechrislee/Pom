@@ -15,9 +15,8 @@ export const GET = api(async () => {
       .toArray(),
     database
       .collection("sessions")
-      .find({ userId }, { projection: { _id: 0, userId: 0 } })
+      .find({ userId, deletedAt: { $exists: false } }, { projection: { _id: 0, userId: 0 } })
       .sort({ endedAt: -1 })
-      .limit(20000)
       .toArray(),
     database
       .collection("backgrounds")

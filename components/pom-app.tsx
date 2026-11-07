@@ -59,6 +59,7 @@ import TimerSettings, { RhythmInputs } from "./timer-settings";
 import TaskImportDialog from "./task-import-dialog";
 import FocusTasks from "./focus-tasks";
 import BackgroundVersions from "./background-versions";
+import SessionHistory from "./session-history";
 
 type View = "focus" | "tasks" | "insights" | "backgrounds";
 type Dialog = "settings" | "themes" | "generate" | "versions" | "import-tasks" | "help" | null;
@@ -1276,45 +1277,13 @@ export default function PomApp() {
                   </div>
                 )}
               </section>
-              <div className="recent-sessions panel">
-                <div className="card-heading">
-                  <h2>Your recent moments</h2>
-                  <span className="eyebrow">FOCUS HISTORY</span>
-                </div>
-                {sessions.length ? (
-                  [...sessions]
-                    .sort((a, b) => new Date(b.endedAt).getTime() - new Date(a.endedAt).getTime())
-                    .slice(0, 8)
-                    .map((s) => (
-                      <div key={s.id} className="session-row">
-                        <span className="session-row-icon">
-                          <Leaf size={16} />
-                        </span>
-                        <div>
-                          <strong>
-                            {tasks.find((t) => t.id === s.taskId)?.title || "A little focused time"}
-                          </strong>
-                          <small>
-                            {new Date(s.endedAt).toLocaleDateString("en", {
-                              month: "short",
-                              day: "numeric",
-                              hour: "2-digit",
-                              minute: "2-digit",
-                            })}
-                          </small>
-                        </div>
-                        <span>{formatMinutes(s.seconds / 60)}</span>
-                        <span className="session-state">
-                          {s.completed ? "A full session" : "A little progress"}
-                        </span>
-                      </div>
-                    ))
-                ) : (
-                  <p className="history-empty">
-                    A fresh page. Start a focus session and make a little history.
-                  </p>
-                )}
-              </div>
+              <SessionHistory
+                sessions={sessions}
+                tasks={tasks}
+                currentSessionId={focus.timer.startedAt ? focus.timer.id : undefined}
+                onEdit={workspace.editSession}
+                onDelete={workspace.deleteSession}
+              />
             </>
           )}
           {view === "backgrounds" && (

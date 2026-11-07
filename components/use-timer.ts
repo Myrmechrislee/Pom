@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { type FocusSession, type Preferences, type TimerState } from "@/lib/types";
+import { focusSnapshot } from "@/lib/sessions";
 
 const initial = (minutes: number, round = 1): TimerState => ({
   mode: "focus",
@@ -39,6 +40,7 @@ export function useTimer(
   notifyRef.current = notify;
   const initialized = useRef(false);
   const finished = useRef(new Set<string>());
+  const lastCheckpoint = useRef({ id: "", seconds: 0 });
   const key = `pom.timer.${userId || "guest"}`;
   const [hydrated, setHydrated] = useState(false);
   useEffect(() => {
@@ -75,20 +77,8 @@ export function useTimer(
     if (finished.current.has(t.id)) return;
     finished.current.add(t.id);
     const now = Date.now();
-    const elapsed =
-      t.elapsed +
-      (t.running && t.endsAt
-        ? Math.min(t.remaining, Math.max(0, (now - (t.endsAt - t.remaining * 1000)) / 1000))
-        : 0);
-    if (t.mode === "focus" && t.startedAt && elapsed >= 1)
-      void recordRef.current({
-        id: t.id,
-        startedAt: t.startedAt,
-        endedAt: new Date(Math.min(now, t.endsAt && completed ? t.endsAt : now)).toISOString(),
-        seconds: Math.floor(elapsed),
-        completed,
-        taskId: t.taskId,
-      });
+    const session = focusSnapshot(t, "finished", completed, now);
+    if (session) void recordRef.current(session);
     if (completed) {
       notifyRef.current(
         t.mode === "focus"
@@ -132,21 +122,40 @@ export function useTimer(
     timerRef.current = next;
     setTimer(next);
   }, []);
+  const checkpoint = useCallback((force = false) => {
+    const session = focusSnapshot(timerRef.current, "active");
+    if (!session || finished.current.has(session.id)) return;
+    const last = lastCheckpoint.current.id === session.id ? lastCheckpoint.current.seconds : 0;
+    if (session.seconds > last && (force || session.seconds - last >= 60)) {
+      lastCheckpoint.current = { id: session.id, seconds: session.seconds };
+      void recordRef.current(session);
+    }
+  }, []);
   useEffect(() => {
     if (!hydrated) return;
     const tick = () => {
       const t = timerRef.current;
       if (t.running && t.endsAt && Date.now() >= t.endsAt) finish(true);
-      else if (t.running) setTick(Math.floor(Date.now() / 1000));
+      else if (t.running) {
+        checkpoint();
+        setTick(Math.floor(Date.now() / 1000));
+      }
     };
+    const visibilityChanged = () => {
+      tick();
+      if (document.visibilityState === "hidden") checkpoint(true);
+    };
+    const pageHidden = () => checkpoint(true);
     tick();
     const interval = setInterval(tick, 250);
-    document.addEventListener("visibilitychange", tick);
+    document.addEventListener("visibilitychange", visibilityChanged);
+    window.addEventListener("pagehide", pageHidden);
     return () => {
       clearInterval(interval);
-      document.removeEventListener("visibilitychange", tick);
+      document.removeEventListener("visibilitychange", visibilityChanged);
+      window.removeEventListener("pagehide", pageHidden);
     };
-  }, [hydrated, finish]);
+  }, [hydrated, finish, checkpoint]);
   const [, setTick] = useState(0);
   const remaining =
     timer.running && timer.endsAt
@@ -157,6 +166,11 @@ export function useTimer(
       now = Date.now();
     let next: TimerState;
     if (t.running && t.endsAt) {
+      if (now >= t.endsAt) {
+        finish(true);
+        return;
+      }
+      checkpoint(true);
       const left = Math.max(0, (t.endsAt - now) / 1000);
       next = {
         ...t,

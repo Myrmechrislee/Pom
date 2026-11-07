@@ -26,7 +26,9 @@ export const sessionSchema = z
     seconds: z.number().int().min(1).max(14400),
     completed: z.boolean(),
     taskId: z.string().max(100).optional(),
+    status: z.enum(["active", "finished"]).default("finished"),
   })
+  .refine((s) => s.status !== "active" || !s.completed, "An active session cannot be completed.")
   .refine((s) => {
     const start = new Date(s.startedAt).getTime(),
       end = new Date(s.endedAt).getTime();

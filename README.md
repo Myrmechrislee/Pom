@@ -41,7 +41,7 @@ After changing code, run `docker compose up -d --build` again. After changing cr
 - Five persistent palettes: Sage, Oat milk, Rose, Lavender, and After hours.
 - Four bundled scenic backgrounds, image imports, and prompt-based AI scene generation. Selecting or creating an image returns to the timer. Editing an AI scene's prompt adds a version to the same saved scene. Use its version picker to restore any previous image and prompt; your selection persists across reloads.
 - A task list grouped by due date and category, with a Due today filter, local tasks, task selection for focus, completion and reopening, and selective Todoist OAuth import/sync.
-- A personal profile with daily, weekly, and monthly charts for focused minutes and task completions, session history, a daily intention, and a streak.
+- A personal profile with daily, weekly, and monthly charts for focused minutes and task completions, a paginated history of every focus session with editing and deletion, a daily intention, and a streak.
 - Responsive desktop and mobile layouts, keyboard-accessible dialogs, reduced-motion support, and honest empty states.
 
 ## Connect the services
@@ -97,7 +97,7 @@ The local Compose configuration includes a `GLIBC_TUNABLES=glibc.pthread.rseq=1`
 
 For Atlas, create a database user, allow your application server’s network address, and use your Atlas connection string. Collections are created automatically: `profiles`, `tasks`, `completions`, `sessions`, `backgrounds`, `backgroundVersions`, `connections`, `oauthStates`, and `generationLimits`.
 
-Every record is scoped to the Auth0 user ID. Session and completion IDs are idempotent. Signed-in focus sessions that temporarily fail to sync are queued on the same device and retried on the next launch.
+Every record is scoped to the Auth0 user ID. Session and completion IDs are idempotent. Signed-in session saves, edits, and deletions that temporarily fail to sync are queued on the same device and retried every minute, when the connection returns, and on the next launch. Each session keeps only its latest pending change. Deleted sessions leave a server tombstone so delayed saves cannot restore them.
 
 ### OpenRouter
 
@@ -138,7 +138,9 @@ Sync opens a task chooser grouped by due date and Todoist project (category). Ta
 
 ## Activity behavior
 
-Charts use the viewer’s local timezone. Focus is recorded when a session finishes, is reset, is skipped, or changes mode. An in-progress session is displayed in the timer and enters the charts when recorded. Sessions spanning chart boundaries distribute their recorded focus in proportion to the session’s wall-clock interval, excluding paused time from the total. There are no seeded statistics or fabricated Todoist tasks.
+Charts use the viewer’s local timezone. While focusing, cumulative progress updates the same session record and the stats every minute. Pausing or hiding/leaving the page also saves partial progress; finishing, resetting, skipping, or changing modes saves the final total. Background tabs catch up from timestamps when the browser next runs the timer. Task completions save immediately. There are no duplicate session counts for minute updates, and paused time does not increase focus time.
+
+Open **My growth → Your focus history** to browse every recorded session. Edit its local start/end times, actual focused duration, associated task, or full-session completion status, or delete it. Totals, charts, completed-session counts, daily goals, and streaks recalculate from the remaining logs. Finish or reset the current timer before editing its log. An unfinished log from a previous timer can be corrected as well. Sessions spanning chart boundaries distribute their recorded focus in proportion to the session’s wall-clock interval, excluding paused time from the total. There are no seeded statistics or fabricated Todoist tasks.
 
 ## Verification
 
@@ -154,6 +156,8 @@ The browser suite covers timer defaults, task persistence and completion, config
 
 To use an already installed Chrome for browser tests, set `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` to its executable.
 If another Pom instance is running on port 3000, set `POM_E2E_PORT=3001` to test the current source on a separate port.
+
+To include the MongoDB session-storage regression test, run `POM_TEST_MONGODB_URI=mongodb://127.0.0.1:27017 npm test`. It creates and removes a separate temporary test database; without that variable, only this database integration test is skipped.
 
 ## Production
 

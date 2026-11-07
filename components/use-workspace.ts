@@ -8,6 +8,13 @@ import {
 } from "@/lib/backgrounds";
 import { importImageLocally } from "@/lib/import-image";
 import {
+  applySessionQueue,
+  readSessionQueue,
+  upsertSession,
+  type SessionMutation,
+} from "@/lib/sessions";
+import { sessionSchema } from "@/lib/validation";
+import {
   emptyWorkspace,
   type Background,
   type FocusSession,
@@ -18,12 +25,19 @@ import {
   type Workspace,
 } from "@/lib/types";
 
-export async function request<T>(url: string, method = "GET", value?: unknown): Promise<T> {
+export async function request<T>(
+  url: string,
+  method = "GET",
+  value?: unknown,
+  keepalive = false,
+): Promise<T> {
   const isForm = value instanceof FormData;
   const response = await fetch(url, {
     method,
     headers: value === undefined || isForm ? undefined : { "Content-Type": "application/json" },
     body: isForm ? value : value === undefined ? undefined : JSON.stringify(value),
+    keepalive,
+    signal: keepalive ? AbortSignal.timeout(15_000) : undefined,
   });
   const data = await response.json();
   if (!response.ok) throw new Error(data.error || "That didn’t save. Please try again.");
@@ -74,6 +88,17 @@ export function useWorkspace(notify: (message: string) => void) {
   const storageKey = `pom.workspace.${user?.id || "guest"}`;
   const notifyRef = useRef(notify);
   notifyRef.current = notify;
+  const pendingSessions = useRef<SessionMutation[]>([]);
+  const pendingKey = useRef("");
+  const sessionSync = useRef<Promise<void> | null>(null);
+  const syncWarning = useRef(false);
+  const persistQueue = useCallback(() => {
+    try {
+      localStorage.setItem(pendingKey.current, JSON.stringify(pendingSessions.current));
+    } catch {
+      notifyRef.current("Your browser couldn’t save pending changes. Check available storage.");
+    }
+  }, []);
   useEffect(() => {
     let cancelled = false;
     async function init() {
@@ -102,23 +127,15 @@ export function useWorkspace(notify: (message: string) => void) {
               error instanceof Error ? error.message : "Couldn’t sync your workspace.",
             );
           }
-          const pendingKey = `pom.pending.${me.user.id}`;
-          let pending: FocusSession[] = [];
+          pendingKey.current = `pom.pending.${me.user.id}`;
           try {
-            pending = JSON.parse(localStorage.getItem(pendingKey) || "[]");
+            pendingSessions.current = readSessionQueue(
+              JSON.parse(localStorage.getItem(pendingKey.current) || "[]"),
+            );
           } catch {
             /* use empty queue */
           }
-          const remaining: FocusSession[] = [];
-          for (const session of pending) {
-            try {
-              await request("/api/sessions", "POST", session);
-            } catch {
-              remaining.push(session);
-            }
-            if (!value.sessions.some((s) => s.id === session.id)) value.sessions.push(session);
-          }
-          localStorage.setItem(pendingKey, JSON.stringify(remaining));
+          value.sessions = applySessionQueue(value.sessions, pendingSessions.current);
         }
         if (!cancelled) {
           setData(value);
@@ -146,6 +163,85 @@ export function useWorkspace(notify: (message: string) => void) {
       }
     }
   }, [data, ready, storageKey]);
+
+  const syncSessions = useCallback(async () => {
+    if (!ready || !user || !services.database) return;
+    if (sessionSync.current) return sessionSync.current;
+    const operation = (async () => {
+      // Let the in-flight promise be assigned before the first queue read.
+      await Promise.resolve();
+      const attempted = new Set<string>();
+      let mutation: SessionMutation | undefined;
+      while ((mutation = pendingSessions.current.find((entry) => !attempted.has(entry.revision)))) {
+        attempted.add(mutation.revision);
+        try {
+          const result = await request<{ session?: FocusSession | null }>(
+            "/api/sessions",
+            mutation.method,
+            mutation.method === "DELETE" ? { id: mutation.id } : mutation.session,
+            true,
+          );
+          if (pendingSessions.current.some((entry) => entry.revision === mutation!.revision)) {
+            const saved = mutation;
+            pendingSessions.current = pendingSessions.current.filter(
+              (entry) => entry.revision !== saved.revision,
+            );
+            persistQueue();
+            // Adopt the server's final value if another tab already edited or deleted it.
+            if (saved.method !== "DELETE" && result.session !== undefined) {
+              const session = result.session;
+              setData((d) => ({
+                ...d,
+                sessions: session
+                  ? upsertSession(d.sessions, session)
+                  : d.sessions.filter((entry) => entry.id !== saved.id),
+              }));
+            }
+          }
+        } catch {
+          if (!syncWarning.current) {
+            syncWarning.current = true;
+            notifyRef.current(
+              "Changes saved on this device. Cloud sync will retry every minute and when you reconnect.",
+            );
+          }
+        }
+      }
+      if (!pendingSessions.current.length) syncWarning.current = false;
+    })();
+    sessionSync.current = operation;
+    try {
+      await operation;
+    } finally {
+      sessionSync.current = null;
+    }
+  }, [ready, user, services.database, persistQueue]);
+
+  useEffect(() => {
+    if (!ready || !user || !services.database) return;
+    void syncSessions();
+    const retry = () => void syncSessions();
+    const interval = setInterval(retry, 60_000);
+    window.addEventListener("online", retry);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener("online", retry);
+    };
+  }, [ready, user, services.database, syncSessions]);
+
+  const queueSession = useCallback(
+    async (mutation: SessionMutation) => {
+      if (!user) return;
+      pendingKey.current = `pom.pending.${user.id}`;
+      pendingSessions.current = [
+        ...pendingSessions.current.filter((entry) => entry.id !== mutation.id),
+        mutation,
+      ];
+      persistQueue();
+      await syncSessions();
+    },
+    [user, persistQueue, syncSessions],
+  );
 
   const updatePreferences = useCallback(
     async (preferences: Preferences) => {
@@ -208,34 +304,28 @@ export function useWorkspace(notify: (message: string) => void) {
   };
   const recordSession = useCallback(
     async (session: FocusSession) => {
-      setData((d) =>
-        d.sessions.some((s) => s.id === session.id)
-          ? d
-          : { ...d, sessions: [...d.sessions, session] },
-      );
-      if (!user) return;
-      const key = `pom.pending.${user.id}`;
-      const read = (): FocusSession[] => {
-        try {
-          return JSON.parse(localStorage.getItem(key) || "[]");
-        } catch {
-          return [];
-        }
-      };
-      const pending = read();
-      if (!pending.some((s) => s.id === session.id))
-        localStorage.setItem(key, JSON.stringify([...pending, session]));
-      try {
-        await request("/api/sessions", "POST", session);
-        localStorage.setItem(key, JSON.stringify(read().filter((s) => s.id !== session.id)));
-      } catch {
-        notifyRef.current(
-          "Session saved on this device. We’ll retry cloud sync when you reopen Pom.",
-        );
-      }
+      setData((d) => ({ ...d, sessions: upsertSession(d.sessions, session) }));
+      await queueSession({
+        id: session.id,
+        revision: crypto.randomUUID(),
+        method: "POST",
+        session,
+      });
     },
-    [user],
+    [queueSession],
   );
+  const editSession = async (value: FocusSession) => {
+    const session = sessionSchema.parse({ ...value, status: "finished" });
+    setData((d) => ({
+      ...d,
+      sessions: [...d.sessions.filter((entry) => entry.id !== session.id), session],
+    }));
+    await queueSession({ id: session.id, revision: crypto.randomUUID(), method: "PATCH", session });
+  };
+  const deleteSession = async (id: string) => {
+    setData((d) => ({ ...d, sessions: d.sessions.filter((entry) => entry.id !== id) }));
+    await queueSession({ id, revision: crypto.randomUUID(), method: "DELETE" });
+  };
   const syncTodoist = async (taskIds: string[]) => {
     if (!user) {
       notify("Sign in to connect your Todoist account.");
@@ -335,6 +425,8 @@ export function useWorkspace(notify: (message: string) => void) {
     toggleTask,
     deleteTask,
     recordSession,
+    editSession,
+    deleteSession,
     syncTodoist,
     generate,
     chooseBackgroundVersion,

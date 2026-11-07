@@ -1690,8 +1690,9 @@ h1 {
   color: var(--accent);
   border-radius: 8px;
 }
-.session-row > div {
+.session-row > .session-details {
   flex: 1;
+  min-width: 0;
 }
 .session-row strong {
   font-size: 11px;
@@ -1703,9 +1704,78 @@ h1 {
   display: block;
   margin-top: 4px;
 }
-.session-row > span:nth-last-child(2) {
+.session-duration {
   font-size: 12px;
   font-weight: 500;
+  white-space: nowrap;
+}
+.session-row-icon {
+  flex-shrink: 0;
+}
+.session-details strong {
+  overflow-wrap: anywhere;
+}
+.session-actions {
+  display: flex;
+  flex-shrink: 0;
+  gap: 2px;
+}
+.session-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+.session-pagination > span {
+  margin-right: auto;
+  color: var(--muted);
+  font-size: 11px;
+}
+.session-editor {
+  display: grid;
+  gap: 16px;
+}
+.session-editor label {
+  display: grid;
+  gap: 7px;
+  font-size: 12px;
+}
+.session-editor input:not([type="checkbox"]),
+.session-editor select {
+  width: 100%;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+.session-duration-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.session-editor .session-completed-field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.session-form-help {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.7;
+}
+.session-form-error {
+  color: var(--text);
+  font-size: 12px;
+}
+.session-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
 }
 .session-state {
   background: var(--accent-soft);

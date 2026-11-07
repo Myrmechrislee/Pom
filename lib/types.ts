@@ -30,6 +30,8 @@ export type FocusSession = {
   seconds: number;
   completed: boolean;
   taskId?: string;
+  // Older saved sessions are finished when this field is absent.
+  status?: "active" | "finished";
 };
 export type TaskCompletion = { id: string; taskId: string; title: string; completedAt: string };
 export type BackgroundVersion = {
