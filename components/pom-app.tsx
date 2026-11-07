@@ -1,5 +1,5 @@
 "use client";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowRight,
   ArrowUpRight,
@@ -53,6 +53,7 @@ import { aggregateStats, formatMinutes, localDateKey, streakDays } from "@/lib/s
 import { BACKGROUND_IMAGE_TYPES, backgroundVersions } from "@/lib/backgrounds";
 import { useWorkspace } from "./use-workspace";
 import { useTimer } from "./use-timer";
+import { useFocusMode } from "./use-focus-mode";
 import { useSoundEffects } from "./use-sound-effects";
 import Modal from "./modal";
 import TimerReadout from "./timer-readout";
@@ -126,7 +127,11 @@ function CurrentTime() {
   if (!now) return null;
   return (
     <time className="zen-clock" dateTime={now.toISOString()} aria-label="Current time">
-      {now.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
+      {now.toLocaleTimeString("en-US", {
+        hour: "numeric",
+        minute: "2-digit",
+        hour12: true,
+      })}
     </time>
   );
 }
@@ -146,20 +151,12 @@ export default function PomApp() {
   const { preferences, tasks, completions, sessions, backgrounds } = data;
   const { play: playSound, prepare: prepareSound } = useSoundEffects(preferences.sound);
   const focus = useTimer(preferences, ready, user?.id, workspace.recordSession, notify);
-  const [zen, setZen] = useState(false);
-  const enterFocusMode = useCallback(() => {
-    setZen(true);
-    // Request while the start/fullscreen click still has browser activation.
-    if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
-      void document.documentElement.requestFullscreen().catch(() => {
-        // The viewport-sized focus layout also works without browser fullscreen.
-      });
-    }
-  }, []);
-  const exitFocusMode = useCallback(() => {
-    setZen(false);
-    if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
-  }, []);
+  const { zen, browserFullscreen, fullscreenSupported, enterFocusMode, exitFocusMode } =
+    useFocusMode({
+      hydrated: focus.hydrated,
+      running: focus.timer.running,
+      autoFullscreen: preferences.autoFullscreen,
+    });
   const toggleTimer = () => {
     playSound(focus.timer.running ? "pause" : "start");
     if (!focus.timer.running && preferences.autoFullscreen) enterFocusMode();
@@ -227,9 +224,25 @@ export default function PomApp() {
       void audioRef.current?.close();
     };
   }, []);
-  useEffect(() => {
+  useLayoutEffect(() => {
+    if (!ready) {
+      // Keep the theme applied by the startup script while the workspace loads.
+      try {
+        const saved = localStorage.getItem("pom.theme");
+        const theme = THEMES.find((candidate) => candidate.id === saved);
+        if (theme) document.documentElement.dataset.theme = theme.id;
+      } catch {
+        // The default palette works when browser storage is unavailable.
+      }
+      return;
+    }
     document.documentElement.dataset.theme = preferences.theme;
-  }, [preferences.theme]);
+    try {
+      localStorage.setItem("pom.theme", preferences.theme);
+    } catch {
+      // Applying a theme does not require browser storage.
+    }
+  }, [preferences.theme, ready]);
   useEffect(() => {
     if (dialog === "settings") setDraft(preferences);
   }, [dialog, preferences]);
@@ -250,29 +263,8 @@ export default function PomApp() {
       window.history.replaceState({}, "", window.location.pathname);
   }, [ready, notify]);
   useEffect(() => {
-    const listener = (event: KeyboardEvent) => {
-      if (
-        event.key === "Escape" &&
-        !event.defaultPrevented &&
-        !document.querySelector("dialog[open]")
-      )
-        exitFocusMode();
-    };
-    const fullscreenChanged = () => {
-      if (!document.fullscreenElement) setZen(false);
-    };
-    window.addEventListener("keydown", listener);
-    document.addEventListener("fullscreenchange", fullscreenChanged);
-    return () => {
-      window.removeEventListener("keydown", listener);
-      document.removeEventListener("fullscreenchange", fullscreenChanged);
-    };
-  }, [exitFocusMode]);
-  useEffect(() => {
-    // Reloads and automatically started sessions cannot request browser fullscreen.
     if (focus.hydrated && focus.timer.running && preferences.autoFullscreen) {
       setView("focus");
-      setZen(true);
     }
   }, [focus.hydrated, focus.timer.running, preferences.autoFullscreen]);
   useEffect(() => {
@@ -717,6 +709,16 @@ export default function PomApp() {
                     </span>
                     <div className="timer-top-actions">
                       {zen && <CurrentTime />}
+                      {zen && fullscreenSupported && !browserFullscreen && (
+                        <button
+                          className="glass-icon"
+                          onClick={enterFocusMode}
+                          aria-label="Enter browser fullscreen"
+                          title="Enter fullscreen"
+                        >
+                          <Maximize2 size={17} />
+                        </button>
+                      )}
                       <button
                         className="glass-icon"
                         onClick={() => setDialog("settings")}

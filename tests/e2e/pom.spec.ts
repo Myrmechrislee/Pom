@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { localDateKey } from "../../lib/stats";
+import { emptyWorkspace } from "../../lib/types";
 
 async function openPom(page: import("@playwright/test").Page) {
   await page.goto("/");
@@ -170,6 +171,48 @@ test("running timer survives refresh and focus mode has an escape", async ({ pag
   await page.getByRole("button", { name: "Exit distraction-free mode" }).click();
   await expect(page.locator(".app-shell")).not.toHaveClass(/zen/);
 });
+for (const state of ["idle", "paused"] as const) {
+  test(`${state} fullscreen survives reload and an explicit exit is remembered`, async ({
+    page,
+  }) => {
+    await openPom(page);
+    if (state === "idle") {
+      await settings(page);
+      await page.getByRole("checkbox", { name: /Open fullscreen automatically/ }).uncheck();
+      await page.getByRole("button", { name: "Save my rhythm" }).click();
+      await page.getByRole("button", { name: "Enter distraction-free mode" }).click();
+    } else {
+      await page.getByRole("button", { name: "Start focusing", exact: true }).click();
+      await page.getByRole("button", { name: "Pause", exact: true }).click();
+    }
+    await expect.poll(() => page.evaluate(() => Boolean(document.fullscreenElement))).toBe(true);
+    const digits = await page.locator(".timer-digits").textContent();
+    await page.reload();
+    await expect(page.locator(".app-shell")).toHaveClass(/zen/);
+    await expect(page.locator(".timer-digits")).toHaveText(digits!);
+    await expect(
+      page.getByRole("button", {
+        name: state === "idle" ? "Start focusing" : "Keep going",
+        exact: true,
+      }),
+    ).toBeEnabled();
+    if (!(await page.evaluate(() => Boolean(document.fullscreenElement)))) {
+      await page.getByRole("button", { name: "Enter browser fullscreen", exact: true }).click();
+      await expect.poll(() => page.evaluate(() => Boolean(document.fullscreenElement))).toBe(true);
+    }
+    await page.getByRole("button", { name: "Exit distraction-free mode" }).click();
+    await expect(page.locator(".app-shell")).not.toHaveClass(/zen/);
+    await page.reload();
+    await expect(
+      page.getByRole("button", {
+        name: state === "idle" ? "Start focusing" : "Keep going",
+        exact: true,
+      }),
+    ).toBeEnabled();
+    await expect(page.locator(".app-shell")).not.toHaveClass(/zen/);
+  });
+}
+
 test("automatic fullscreen shows the task transparently and the ring tracks remaining time", async ({
   page,
 }) => {
@@ -288,6 +331,27 @@ test("mobile fullscreen fits long tasks and respects reduced motion", async ({ p
     await expect(page.getByRole("button", { name: "Exit distraction-free mode" })).toBeInViewport();
   }
 });
+for (const source of ["cache", "guest workspace"] as const) {
+  test(`saved theme from ${source} is applied before React loads`, async ({ page }) => {
+    const workspace = emptyWorkspace();
+    workspace.preferences.theme = "midnight";
+    await page.addInitScript(
+      ({ source, workspace }) => {
+        if (source === "cache") localStorage.setItem("pom.theme", "midnight");
+        else localStorage.setItem("pom.workspace.guest", JSON.stringify(workspace));
+      },
+      { source, workspace },
+    );
+    await page.route("**/_next/**", (route) =>
+      route.request().resourceType() === "script" ? route.abort() : route.continue(),
+    );
+    await page.goto("/");
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "midnight");
+    await expect(page.locator("body")).toHaveCSS("background-color", "rgb(30, 35, 41)");
+    await expect(page.getByRole("button", { name: "Start focusing", exact: true })).toBeDisabled();
+  });
+}
+
 test("themes and scenery persist and dialogs are keyboard dismissible", async ({ page }) => {
   await openPom(page);
   await page.getByRole("button", { name: "Make it yours" }).click();
