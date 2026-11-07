@@ -53,6 +53,7 @@ import { aggregateStats, formatMinutes, localDateKey, streakDays } from "@/lib/s
 import { BACKGROUND_IMAGE_TYPES, backgroundVersions } from "@/lib/backgrounds";
 import { useWorkspace } from "./use-workspace";
 import { useTimer } from "./use-timer";
+import { useSoundEffects } from "./use-sound-effects";
 import Modal from "./modal";
 import TimerReadout from "./timer-readout";
 import TimerSettings, { RhythmInputs } from "./timer-settings";
@@ -113,6 +114,23 @@ function Stat({
   );
 }
 
+function CurrentTime() {
+  const [now, setNow] = useState<Date | null>(null);
+  useEffect(() => {
+    const update = () => setNow(new Date());
+    update();
+    const interval = setInterval(update, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  if (!now) return null;
+  return (
+    <time className="zen-clock" dateTime={now.toISOString()} aria-label="Current time">
+      {now.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
+    </time>
+  );
+}
+
 export default function PomApp() {
   const [view, setView] = useState<View>("focus");
   const [dialog, setDialog] = useState<Dialog>(null);
@@ -126,6 +144,7 @@ export default function PomApp() {
   const workspace = useWorkspace(notify);
   const { data, user, services, ready, todoistConnected, syncing } = workspace;
   const { preferences, tasks, completions, sessions, backgrounds } = data;
+  const { play: playSound, prepare: prepareSound } = useSoundEffects(preferences.sound);
   const focus = useTimer(preferences, ready, user?.id, workspace.recordSession, notify);
   const [zen, setZen] = useState(false);
   const enterFocusMode = useCallback(() => {
@@ -142,6 +161,7 @@ export default function PomApp() {
     if (document.fullscreenElement) void document.exitFullscreen().catch(() => {});
   }, []);
   const toggleTimer = () => {
+    playSound(focus.timer.running ? "pause" : "start");
     if (!focus.timer.running && preferences.autoFullscreen) enterFocusMode();
     focus.toggle();
   };
@@ -255,11 +275,6 @@ export default function PomApp() {
       setZen(true);
     }
   }, [focus.hydrated, focus.timer.running, preferences.autoFullscreen]);
-  const previousMode = useRef(focus.timer.mode);
-  useEffect(() => {
-    if (previousMode.current !== focus.timer.mode && !focus.timer.running) exitFocusMode();
-    previousMode.current = focus.timer.mode;
-  }, [focus.timer.mode, focus.timer.running, exitFocusMode]);
   useEffect(() => {
     if (!zen) return;
     const previous = document.documentElement.style.overflow;
@@ -322,8 +337,12 @@ export default function PomApp() {
   };
   const completeTask = async (task: Task) => {
     if (pendingTask) return;
+    if (!task.completed) prepareSound();
     setPendingTask(task.id);
-    await attempt(() => workspace.toggleTask(task));
+    await attempt(async () => {
+      await workspace.toggleTask(task);
+      if (!task.completed) playSound("complete");
+    });
     setPendingTask(null);
   };
   const setPreference = async (value: Partial<Preferences>) =>
@@ -697,6 +716,7 @@ export default function PomApp() {
                         : "A MOMENT FOR YOU"}
                     </span>
                     <div className="timer-top-actions">
+                      {zen && <CurrentTime />}
                       <button
                         className="glass-icon"
                         onClick={() => setDialog("settings")}
@@ -1566,8 +1586,8 @@ export default function PomApp() {
               </label>
               <label className="toggle-row">
                 <span>
-                  <strong>A gentle heads-up</strong>
-                  <small>Play a soft chime when a session ends.</small>
+                  <strong>Sound effects</strong>
+                  <small>Soft tones for timer controls, completed tasks, and session endings.</small>
                 </span>
                 <input
                   type="checkbox"

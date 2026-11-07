@@ -123,6 +123,7 @@ test("custom durations finish accurately and appear in profile", async ({ page }
     "true",
   );
   await expect(page.locator(".timer-digits")).toHaveText("02:00");
+  await page.getByRole("button", { name: "Exit distraction-free mode" }).click();
   await page.getByRole("button", { name: "My growth", exact: true }).click();
   await expect(
     page.locator(".insight-stats .stat").filter({ hasText: "Focus sessions" }).locator("strong"),

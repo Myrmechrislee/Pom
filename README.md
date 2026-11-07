@@ -34,7 +34,7 @@ After changing code, run `docker compose up -d --build` again. After changing cr
 ## What’s included
 
 - Focus, short-break, and long-break timers. Defaults: **30 / 5 / 15 minutes**, with a long break after four completed focus sessions. Set durations and the number of sessions before a long break (1–12) directly on the dashboard before starting; All settings opens the remaining preferences.
-- Start, pause, resume, reset, skip, optional ambient sound, completion chimes, and optional automatic session starts.
+- Start, pause, resume, reset, skip, optional ambient sound, soft tones for starting/pausing the timer and completing tasks, session completion chimes, and optional automatic session starts. Toggle sound effects in Settings.
 - Starting or resuming a timer opens fullscreen by default, with the selected task and a transparent, scrollable list of unfinished tasks over the scenery. Select a task to focus on it, or check it off without leaving fullscreen; imported task completions also update Todoist, and failed updates stay available to retry. Escape or the close button returns to the workspace. Browsers that restrict fullscreen use the full-window focus layout, including when recovering a running timer after reload.
 - An animated ring shows time remaining by default. Settings offer a progress bar, no indicator, animation control, and automatic fullscreen control; choices persist with your workspace. Reduced-motion preferences disable animation.
 - Timestamp-based timer recovery across reloads and background tabs. Paused time is excluded. Resetting, skipping, or changing modes records the focus time already spent.
