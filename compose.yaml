@@ -1,0 +1,47 @@
+# Local Pom stack. Published ports are accessible only over loopback.
+services:
+  app:
+    build: .
+    env_file:
+      - path: .env
+        required: false
+      - path: .env.local
+        required: false
+    environment:
+      # Containers reach MongoDB over the Compose network, not host loopback.
+      MONGODB_URI: mongodb://mongo:27017/pom
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on:
+      mongo:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/').then(response => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    restart: unless-stopped
+  mongo:
+    image: mongo:8
+    environment:
+      # Local Docker Desktop workaround for SERVER-121912 on Linux 6.19–7.0.13.
+      # Let glibc own rseq so TCMalloc falls back from its incompatible per-CPU cache.
+      GLIBC_TUNABLES: "glibc.pthread.rseq=1"
+    ports:
+      - "127.0.0.1:27017:27017"
+    volumes:
+      - pom-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "quit(db.adminCommand({ping:1}).ok ? 0 : 1)"]
+      interval: 5s
+      timeout: 5s
+      start_period: 10s
+      retries: 12
+    restart: unless-stopped
+volumes:
+  pom-data:
