@@ -108,6 +108,8 @@ OPENROUTER_IMAGE_MODEL=google/gemini-2.5-flash-image
 
 Use an image-output model supported by OpenRouter’s dedicated `POST /api/v1/images` endpoint. The model is configurable; availability and credit requirements depend on your OpenRouter account. The server requests a landscape scene, converts the returned image to WebP, and saves the bytes directly to the user’s MongoDB library. Background URLs are authenticated and private, so provider URLs cannot expire out of the library.
 
+Browsers cache bundled scenes for one day and saved images privately for up to one year, reusing downloaded images across visits. Each saved image version has its own URL, so generating a revision shows the new image immediately. Guest imports are already stored on the device.
+
 Generation requires a signed-in user, MongoDB, and an OpenRouter key. The app limits each user to five requests per hour and 50 saved backgrounds. Revisions stay within their original background and do not use additional library slots; generating a revision still counts toward the hourly limit. Generated images are resized to a maximum width of 1920 pixels and capped at 8 MB after conversion.
 
 To use your own photo, open **Backgrounds → Import image**. JPG, PNG, WebP, and GIF files up to 8 MB and 40 megapixels are supported; animated images are saved as still backgrounds. Imports are resized to fit within 1920 × 1920 pixels and applied automatically. Guest imports stay in browser storage on this device, subject to available space. Signed-in imports are converted to WebP and saved privately in MongoDB alongside generated scenes. Imports do not require OpenRouter credits and share the 50-background library limit.

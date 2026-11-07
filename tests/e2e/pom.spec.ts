@@ -362,6 +362,7 @@ test("private API routes require login and reject cross-origin writes", async ({
   expect(cross.status()).toBe(403);
   const privateImage = await request.get("/api/backgrounds/00000000-0000-4000-8000-000000000000");
   expect(privateImage.status()).toBe(401);
+  expect(privateImage.headers()["cache-control"]).toBe("no-store");
   expect((await request.get("/api/todoist/sync")).status()).toBe(401);
   expect(
     (

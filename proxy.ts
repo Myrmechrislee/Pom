@@ -29,5 +29,6 @@ export async function proxy(request: NextRequest) {
   return auth.middleware(request);
 }
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|images/|icon.svg).*)"],
+  // Image GETs authenticate in their route; rolling cookies here would disable caching.
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|images/|icon.svg|api/backgrounds/).*)"],
 };

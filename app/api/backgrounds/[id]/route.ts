@@ -1,6 +1,9 @@
 import { db, requireUser, ApiError } from "@/lib/server";
 import { NextResponse } from "next/server";
 
+const notFound = () =>
+  new Response("Not found", { status: 404, headers: { "Cache-Control": "no-store" } });
+
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
   try {
     const userId = await requireUser(),
@@ -13,12 +16,12 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
         { _id: `${userId}:${id}` as never, userId },
         { projection: versionId ? { id: 1, versions: 1 } : { data: 1 } },
       );
-    if (!background) return new Response("Not found", { status: 404 });
+    if (!background) return notFound();
     if (
       versionId &&
       !background.versions?.some((version: { id: string }) => version.id === versionId)
     )
-      return new Response("Not found", { status: 404 });
+      return notFound();
     const image = versionId
       ? await database.collection("backgroundVersions").findOne({
           _id: `${userId}:${id}:${versionId}` as never,
@@ -26,18 +29,22 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
           backgroundId: id,
         })
       : background;
-    if (!image?.data) return new Response("Not found", { status: 404 });
+    if (!image?.data) return notFound();
     return new Response(new Uint8Array(image.data.buffer), {
       headers: {
         "Content-Type": "image/webp",
-        "Cache-Control": "private, no-store",
+        // Original images and revisions have distinct URLs and never change their bytes.
+        "Cache-Control": "private, max-age=31536000, immutable",
         "X-Content-Type-Options": "nosniff",
       },
     });
   } catch (error) {
     return NextResponse.json(
       { error: "Couldn’t load this background." },
-      { status: error instanceof ApiError ? error.status : 500 },
+      {
+        status: error instanceof ApiError ? error.status : 500,
+        headers: { "Cache-Control": "no-store" },
+      },
     );
   }
 }

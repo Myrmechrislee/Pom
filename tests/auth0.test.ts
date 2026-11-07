@@ -1,8 +1,9 @@
 import { after, before, mock, test } from "node:test";
 import assert from "node:assert/strict";
 import { NextRequest, NextResponse } from "next/server";
+import { unstable_doesMiddlewareMatch as doesProxyMatch } from "next/experimental/testing/server";
 import { getAuth0 } from "../lib/auth0";
-import { proxy } from "../proxy";
+import { config, proxy } from "../proxy";
 
 const environment = {
   APP_BASE_URL: "http://localhost:3000",
@@ -34,6 +35,19 @@ after(() => {
   for (const [key, value] of Object.entries(previous)) {
     if (value === undefined) delete process.env[key];
     else process.env[key] = value;
+  }
+});
+
+test("image downloads skip cookie rolling while library and auth routes keep proxy coverage", () => {
+  for (const url of [
+    "/images/forest.jpg",
+    "/api/backgrounds/original",
+    "/api/backgrounds/original?version=revision",
+  ]) {
+    assert.equal(doesProxyMatch({ config, nextConfig: {}, url }), false, url);
+  }
+  for (const url of ["/api/backgrounds", "/api/workspace", "/auth/login", "/auth/logout"]) {
+    assert.equal(doesProxyMatch({ config, nextConfig: {}, url }), true, url);
   }
 });
 
