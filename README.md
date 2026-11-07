@@ -160,6 +160,32 @@ npm start
 
 Alternatively, build the included Dockerfile and provide runtime secrets to the container. Set `APP_BASE_URL` to the exact public HTTPS origin and register that origin’s Auth0 and Todoist callback URLs. `npm start` binds to loopback for local use; the Docker standalone server binds to `0.0.0.0:3000` for hosting.
 
+### Deploy to Contabo with GitHub Actions
+
+The workflow in `.github/workflows/deploy.yml` deploys on pushes to `main` and can also be started from GitHub’s **Actions → Deploy to Contabo → Run workflow**. It connects to the Ubuntu server over SSH and runs:
+
+```sh
+cd "$HOME/Pom"
+git pull --ff-only
+docker compose up -d --build app
+```
+
+`--build` rebuilds the app image with the pulled code before starting it. Deployments run one at a time.
+
+In the repository’s **Settings → Secrets and variables → Actions**, add these repository secrets:
+
+| Secret | Value |
+| --- | --- |
+| `CONTABO_HOST` | Server IP address or hostname. |
+| `CONTABO_USER` | SSH username. |
+| `CONTABO_SSH_KEY` | Full private SSH key, without a passphrase, whose public key is in that user’s `~/.ssh/authorized_keys` on the server. |
+| `CONTABO_KNOWN_HOSTS` | Verified SSH known-hosts entry for the server. |
+| `CONTABO_PORT` | Optional SSH port; defaults to `22`. |
+
+Generate the known-hosts entry with `ssh-keyscan -H -p 22 YOUR_SERVER_HOST` (use your configured port). Verify its key fingerprint against the server through a trusted connection or Contabo console before saving the entry as `CONTABO_KNOWN_HOSTS`.
+
+The SSH user must already have the repository cloned at `~/Pom`, with `main` checked out and tracking `origin/main`, and be able to run `git pull` and `docker compose` without interactive prompts or `sudo`. Install Docker with Compose 2.24+ and configure the server’s `.env` first. For a private repository, configure GitHub read access on the server as well; the workflow’s SSH key authenticates to Contabo. The app’s published port is loopback-only, so configure your reverse proxy to reach `127.0.0.1:3000`.
+
 ## References and assets
 
 - [Auth0 Next.js SDK](https://auth0.github.io/nextjs-auth0/)
