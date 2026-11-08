@@ -29,7 +29,7 @@ test("today selection uses the calendar date and excludes overdue, future, undat
   );
 });
 
-test("tasks are grouped with today first, then by category, with no lost or duplicate tasks", () => {
+test("tasks are grouped with overdue first, then by category, with no lost or duplicate tasks", () => {
   const tasks = [
     task("later", "2026-11-08"),
     task("late", "2026-11-06"),
@@ -41,10 +41,10 @@ test("tasks are grouped with today first, then by category, with no lost or dupl
   const groups = groupTasks(tasks, "2026-11-07");
   assert.deepEqual(
     groups.map((g) => g.label),
-    ["Due today", "Overdue", "Upcoming", "No due date", "Completed"],
+    ["Overdue", "Due today", "Upcoming", "No due date", "Completed"],
   );
   assert.deepEqual(
-    groups[0].categories.map((c) => c.name),
+    groups[1].categories.map((c) => c.name),
     ["Study", "Work"],
   );
   const ids = groups.flatMap((g) => g.categories.flatMap((c) => c.tasks.map((t) => t.id)));

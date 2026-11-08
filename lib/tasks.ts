@@ -6,12 +6,12 @@ export function isDueToday(task: Task, today: string) {
 
 export function groupTasks(tasks: Task[], today: string) {
   const buckets = [
-    { id: "today", label: "Due today", matches: (t: Task) => isDueToday(t, today) },
     {
       id: "overdue",
       label: "Overdue",
       matches: (t: Task) => !t.completed && !!t.due && t.due.slice(0, 10) < today,
     },
+    { id: "today", label: "Due today", matches: (t: Task) => isDueToday(t, today) },
     {
       id: "upcoming",
       label: "Upcoming",
