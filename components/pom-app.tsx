@@ -10,6 +10,7 @@ import {
   Clock3,
   Coffee,
   Flame,
+  GripVertical,
   ImageIcon,
   Leaf,
   ListTodo,
@@ -48,7 +49,14 @@ import {
   type Task,
   type Theme,
 } from "@/lib/types";
-import { groupTasks, isDueToday } from "@/lib/tasks";
+import {
+  groupTasks,
+  isDueToday,
+  searchTasks,
+  sortTasks,
+  taskDueLabel,
+  type TaskSort,
+} from "@/lib/tasks";
 import { aggregateStats, formatMinutes, localDateKey, streakDays } from "@/lib/stats";
 import { BACKGROUND_IMAGE_TYPES, backgroundVersions } from "@/lib/backgrounds";
 import { useWorkspace } from "./use-workspace";
@@ -57,11 +65,14 @@ import { useFocusMode } from "./use-focus-mode";
 import { useSoundEffects } from "./use-sound-effects";
 import Modal from "./modal";
 import TimerReadout from "./timer-readout";
+import SceneCaption from "./scene-caption";
 import TimerSettings, { RhythmInputs } from "./timer-settings";
 import TaskImportDialog from "./task-import-dialog";
+import TaskSearch from "./task-search";
 import FocusTasks from "./focus-tasks";
 import BackgroundVersions from "./background-versions";
 import SessionHistory from "./session-history";
+import { useTaskReorder } from "./use-task-reorder";
 
 type View = "focus" | "tasks" | "insights" | "backgrounds";
 type Dialog = "settings" | "themes" | "generate" | "versions" | "import-tasks" | "help" | null;
@@ -166,6 +177,9 @@ export default function PomApp() {
   const audioRef = useRef<AudioContext | null>(null);
   const [period, setPeriod] = useState<"day" | "week" | "month">("week");
   const [taskFilter, setTaskFilter] = useState<"all" | "today" | "active" | "completed">("all");
+  const [taskSort, setTaskSort] = useState<TaskSort>("manual");
+  const [taskProject, setTaskProject] = useState("");
+  const [taskSearch, setTaskSearch] = useState("");
   const [taskInput, setTaskInput] = useState("");
   const [adding, setAdding] = useState(false);
   const [pendingTask, setPendingTask] = useState<string | null>(null);
@@ -360,111 +374,201 @@ export default function PomApp() {
     setDialog("import-tasks");
   };
 
+  const searchingTasks = taskSearch.trim().length > 0;
+  const filteredTasks = searchTasks(tasks, taskSearch).filter(
+    (task) =>
+      (!taskProject || (task.project || "Personal") === taskProject) &&
+      (taskFilter === "all" ||
+        (taskFilter === "today"
+          ? isDueToday(task, dayKey)
+          : taskFilter === "completed"
+            ? task.completed
+            : !task.completed)),
+  );
+  const sortedTasks = sortTasks(filteredTasks, taskSort, dayKey);
+  const shownTasks = view === "focus" ? sortedTasks.slice(0, 4) : sortedTasks;
+  const reorderTaskList = async (ids: string[]) => {
+    const previousSort = taskSort;
+    setTaskSort("manual");
+    setTaskMenu(null);
+    try {
+      await workspace.reorderTasks(ids, dayKey);
+    } catch (error) {
+      setTaskSort(previousSort);
+      notify(error instanceof Error ? error.message : "Couldn’t save your task order. Try again.");
+      throw error;
+    }
+  };
+  const taskReorder = useTaskReorder({
+    tasks: shownTasks,
+    disabled: workspace.reorderingTasks || pendingTask !== null || syncing,
+    onReorder: reorderTaskList,
+  });
+
   const taskList = (compact = false) => {
-    const filter = compact ? "all" : taskFilter;
-    const filtered = tasks.filter(
-      (t) =>
-        filter === "all" ||
-        (filter === "today"
-          ? isDueToday(t, dayKey)
-          : filter === "completed"
-            ? t.completed
-            : !t.completed),
+    const filter = taskFilter;
+    const shown = shownTasks;
+    const grouped = taskSort === "manual" && !tasks.some((task) => task.order !== undefined);
+    const renderTask = (task: Task) => (
+      <div
+        key={task.id}
+        className={`task-row ${task.completed ? "completed" : ""} ${focus.timer.taskId === task.id ? "selected" : ""}`}
+        {...taskReorder.rowProps(task.id)}
+      >
+        <button {...taskReorder.handleProps(task)}>
+          <GripVertical size={15} aria-hidden="true" />
+        </button>
+        <button
+          className="task-check"
+          aria-label={`${task.completed ? "Reopen" : "Complete"} ${task.title}`}
+          disabled={pendingTask === task.id}
+          onClick={() => void completeTask(task)}
+        >
+          {pendingTask === task.id ? (
+            <LoaderCircle size={14} className="spin" />
+          ) : task.completed ? (
+            <Check size={14} />
+          ) : null}
+        </button>
+        <button
+          className="task-info"
+          onClick={() => {
+            focus.selectTask(task.id);
+            if (view === "tasks") go("focus");
+          }}
+          disabled={task.completed}
+          title="Focus on this task"
+        >
+          <span>{task.title}</span>
+          <small>
+            {task.source === "todoist" && <TodoistIcon size={11} />}
+            <span>{task.project || "Personal"}</span>
+            {task.due && (
+              <>
+                <span>·</span>
+                <span>
+                  {new Date(`${task.due.slice(0, 10)}T12:00:00`).toLocaleDateString("en", {
+                    month: "short",
+                    day: "numeric",
+                  })}
+                </span>
+              </>
+            )}
+            {!grouped && !task.completed && (
+              <>
+                <span>·</span>
+                <span>{taskDueLabel(task, dayKey)}</span>
+              </>
+            )}
+            {focus.timer.taskId === task.id && !task.completed && (
+              <span className="focusing-label">Focusing</span>
+            )}
+          </small>
+        </button>
+        {task.source === "local" && (
+          <div className="task-menu">
+            <button
+              className="icon-button small"
+              aria-label={`Options for ${task.title}`}
+              onClick={() => setTaskMenu(taskMenu === task.id ? null : task.id)}
+            >
+              <MoreHorizontal size={17} />
+            </button>
+            {taskMenu === task.id && (
+              <button
+                className="delete-task"
+                onClick={() => {
+                  setTaskMenu(null);
+                  void attempt(() => workspace.deleteTask(task));
+                }}
+              >
+                <Trash2 size={14} /> Delete task
+              </button>
+            )}
+          </div>
+        )}
+      </div>
     );
-    const sorted = groupTasks(filtered, dayKey).flatMap((group) =>
-      group.categories.flatMap((category) => category.tasks),
-    );
-    const shown = compact ? sorted.slice(0, 4) : sorted;
     return (
       <>
+        <TaskSearch value={taskSearch} onChange={setTaskSearch} />
+        <span className="sr-only" role="status" aria-atomic="true">
+          {searchingTasks &&
+            `${sortedTasks.length} ${sortedTasks.length === 1 ? "task" : "tasks"} found`}
+        </span>
+        <div className="task-list-controls">
+          {compact && (
+            <label>
+              <span>Show</span>
+              <select
+                aria-label="Filter tasks"
+                value={taskFilter}
+                onChange={(event) => setTaskFilter(event.target.value as typeof taskFilter)}
+              >
+                <option value="all">All tasks</option>
+                <option value="today">Due today</option>
+                <option value="active">To do</option>
+                <option value="completed">Done</option>
+              </select>
+            </label>
+          )}
+          <label>
+            <span>Project</span>
+            <select
+              aria-label="Filter by project"
+              value={taskProject}
+              onChange={(event) => setTaskProject(event.target.value)}
+            >
+              <option value="">All projects</option>
+              {[...new Set(tasks.map((task) => task.project || "Personal"))]
+                .sort((a, b) => a.localeCompare(b))
+                .map((project) => (
+                  <option key={project} value={project}>
+                    {project}
+                  </option>
+                ))}
+            </select>
+          </label>
+          <label>
+            <span>Sort</span>
+            <select
+              aria-label="Sort tasks"
+              value={taskSort}
+              disabled={workspace.reorderingTasks}
+              onChange={(event) => setTaskSort(event.target.value as TaskSort)}
+            >
+              <option value="manual">Manual order</option>
+              <option value="due">Due date</option>
+              <option value="priority">Priority</option>
+              <option value="title">Title A–Z</option>
+              <option value="project">Project A–Z</option>
+            </select>
+          </label>
+        </div>
+        <span className="sr-only" id={taskReorder.instructionsId}>
+          Drag to reorder. With a handle focused, use the Up and Down arrow keys to move a task.
+          Reordering switches to manual order.
+        </span>
+        <span className="sr-only" aria-live="polite" aria-atomic="true">
+          {taskReorder.announcement}
+        </span>
         {shown.length > 0 ? (
-          <div className="task-items">
-            {groupTasks(shown, dayKey).map((group) => (
-              <section className="task-group" key={group.id} aria-label={group.label}>
-                <h3 className="task-group-title">
-                  {group.label} <span>{group.count}</span>
-                </h3>
-                {group.categories.map((category) => (
-                  <div className="task-category" key={category.name}>
-                    <h4 className="task-category-title">{category.name}</h4>
-                    {category.tasks.map((task) => (
-                      <div
-                        key={task.id}
-                        className={`task-row ${task.completed ? "completed" : ""} ${focus.timer.taskId === task.id ? "selected" : ""}`}
-                      >
-                        <button
-                          className="task-check"
-                          aria-label={`${task.completed ? "Reopen" : "Complete"} ${task.title}`}
-                          disabled={pendingTask === task.id}
-                          onClick={() => void completeTask(task)}
-                        >
-                          {pendingTask === task.id ? (
-                            <LoaderCircle size={14} className="spin" />
-                          ) : task.completed ? (
-                            <Check size={14} />
-                          ) : null}
-                        </button>
-                        <button
-                          className="task-info"
-                          onClick={() => {
-                            focus.selectTask(task.id);
-                            if (view === "tasks") go("focus");
-                          }}
-                          disabled={task.completed}
-                          title="Focus on this task"
-                        >
-                          <span>{task.title}</span>
-                          <small>
-                            {task.source === "todoist" && <TodoistIcon size={11} />}
-                            <span>{task.project}</span>
-                            {task.due && (
-                              <>
-                                <span>·</span>
-                                <span>
-                                  {new Date(`${task.due.slice(0, 10)}T12:00:00`).toLocaleDateString(
-                                    "en",
-                                    {
-                                      month: "short",
-                                      day: "numeric",
-                                    },
-                                  )}
-                                </span>
-                              </>
-                            )}
-                            {focus.timer.taskId === task.id && !task.completed && (
-                              <span className="focusing-label">Focusing</span>
-                            )}
-                          </small>
-                        </button>
-                        {task.source === "local" && (
-                          <div className="task-menu">
-                            <button
-                              className="icon-button small"
-                              aria-label={`Options for ${task.title}`}
-                              onClick={() => setTaskMenu(taskMenu === task.id ? null : task.id)}
-                            >
-                              <MoreHorizontal size={17} />
-                            </button>
-                            {taskMenu === task.id && (
-                              <button
-                                className="delete-task"
-                                onClick={() => {
-                                  setTaskMenu(null);
-                                  void attempt(() => workspace.deleteTask(task));
-                                }}
-                              >
-                                <Trash2 size={14} />
-                                Delete task
-                              </button>
-                            )}
-                          </div>
-                        )}
+          <div className="task-items" data-reorder-list aria-busy={workspace.reorderingTasks}>
+            {grouped
+              ? groupTasks(shown, dayKey).map((group) => (
+                  <section className="task-group" key={group.id} aria-label={group.label}>
+                    <h3 className="task-group-title">
+                      {group.label} <span>{group.count}</span>
+                    </h3>
+                    {group.categories.map((category) => (
+                      <div className="task-category" key={category.name}>
+                        <h4 className="task-category-title">{category.name}</h4>
+                        {category.tasks.map(renderTask)}
                       </div>
                     ))}
-                  </div>
-                ))}
-              </section>
-            ))}
+                  </section>
+                ))
+              : shown.map(renderTask)}
           </div>
         ) : (
           <div className={`empty-tasks ${compact ? "compact" : ""}`}>
@@ -472,20 +576,26 @@ export default function PomApp() {
               <ListTodo size={27} strokeWidth={1.3} />
             </span>
             <h3>
-              {filter === "today"
-                ? "A little room in your day."
-                : filter === "completed"
-                  ? "Good things take a little time."
-                  : "A clear mind starts here."}
+              {searchingTasks || taskProject
+                ? "No matching tasks."
+                : filter === "today"
+                  ? "A little room in your day."
+                  : filter === "completed"
+                    ? "Good things take a little time."
+                    : "A clear mind starts here."}
             </h3>
             <p>
-              {filter === "today"
-                ? "No tasks due today. Add a task or choose one to import."
-                : filter === "completed"
-                  ? "Your completed tasks will find a home here."
-                  : "Add a small task, or bring your list from Todoist."}
+              {searchingTasks
+                ? "Try another search or adjust your filters."
+                : taskProject
+                  ? "Try another project or task filter."
+                  : filter === "today"
+                    ? "No tasks due today. Add a task or choose one to import."
+                    : filter === "completed"
+                      ? "Your completed tasks will find a home here."
+                      : "Add a small task, or bring your list from Todoist."}
             </p>
-            {filter !== "completed" && (
+            {!searchingTasks && filter !== "completed" && (
               <button className="text-link" onClick={importTodoist}>
                 <TodoistIcon size={15} />
                 Import from Todoist
@@ -512,9 +622,9 @@ export default function PomApp() {
             {adding ? <LoaderCircle size={17} className="spin" /> : <ArrowRight size={17} />}
           </button>
         </form>
-        {compact && tasks.length > 4 && (
+        {compact && sortedTasks.length > 4 && (
           <button className="view-all" onClick={() => go("tasks")}>
-            View all {tasks.length} tasks
+            View all {sortedTasks.length} tasks
             <ArrowRight size={14} />
           </button>
         )}
@@ -848,21 +958,20 @@ export default function PomApp() {
                     {zen && (
                       <FocusTasks
                         tasks={tasks}
+                        search={taskSearch}
+                        onSearchChange={setTaskSearch}
                         today={dayKey}
                         selectedTaskId={selectedTask?.id}
                         pendingTask={pendingTask}
                         onSelect={focus.selectTask}
                         onComplete={completeTask}
+                        reordering={workspace.reorderingTasks || syncing}
+                        onReorder={reorderTaskList}
                       />
                     )}
                   </div>
                   <div className="timer-bottom">
-                    <span className="location-label">
-                      <Leaf size={14} />
-                      {sceneName}
-                      <span className="location-dot">·</span>
-                      <button onClick={() => go("backgrounds")}>Change scenery</button>
-                    </span>
+                    <SceneCaption name={sceneName} onChange={() => go("backgrounds")} />
                     <button
                       className={`sound-button ${sound ? "active" : ""}`}
                       onClick={toggleSound}
@@ -1589,7 +1698,9 @@ export default function PomApp() {
               <label className="toggle-row">
                 <span>
                   <strong>Sound effects</strong>
-                  <small>Soft tones for timer controls, completed tasks, and session endings.</small>
+                  <small>
+                    Soft tones for timer controls, completed tasks, and session endings.
+                  </small>
                 </span>
                 <input
                   type="checkbox"

@@ -1,22 +1,35 @@
 import { NextResponse } from "next/server";
 import { api, body, db, requireUser, ApiError, todoistToken } from "@/lib/server";
-import { taskSchema } from "@/lib/validation";
+import { taskOrderSchema, taskSchema } from "@/lib/validation";
 import { z } from "zod";
 export const POST = api(async (request) => {
   const userId = await requireUser(),
     value = taskSchema.parse(await body(request));
   const task = { ...value, id: crypto.randomUUID(), completed: false, source: "local" };
-  await (
-    await db()
-  )
-    .collection("tasks")
-    .insertOne({
-      ...task,
-      _id: `${userId}:${task.id}` as never,
-      userId,
-      createdAt: new Date().toISOString(),
-    });
+  await (await db()).collection("tasks").insertOne({
+    ...task,
+    _id: `${userId}:${task.id}` as never,
+    userId,
+    createdAt: new Date().toISOString(),
+  });
   return NextResponse.json({ task });
+});
+export const PUT = api(async (request) => {
+  const userId = await requireUser();
+  const { taskIds } = taskOrderSchema.parse(await body(request));
+  const collection = (await db()).collection("tasks");
+  const owned = await collection.countDocuments({ userId, id: { $in: taskIds } });
+  if (owned !== taskIds.length)
+    throw new ApiError("Some tasks are no longer available. Refresh and try again.", 404);
+  await collection.bulkWrite(
+    taskIds.map((id, order) => ({
+      updateOne: {
+        filter: { _id: `${userId}:${id}` as never, userId },
+        update: { $set: { order } },
+      },
+    })),
+  );
+  return NextResponse.json({ ok: true });
 });
 export const PATCH = api(async (request) => {
   const userId = await requireUser();
@@ -70,6 +83,7 @@ export const PATCH = api(async (request) => {
       title: task.title,
       project: task.project,
       priority: task.priority,
+      order: task.order,
       source: task.source,
       due: task.due,
       completed,

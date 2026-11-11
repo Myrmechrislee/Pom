@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { groupTasks, isDueToday } from "../lib/tasks";
+import { groupTasks, isDueToday, reorderTasks, sortTasks } from "../lib/tasks";
+import { taskOrderSchema } from "../lib/validation";
 import { planTodoistImport } from "../lib/todoist-import";
 import type { Task } from "../lib/types";
 
@@ -50,6 +51,76 @@ test("tasks are grouped with overdue first, then by category, with no lost or du
   const ids = groups.flatMap((g) => g.categories.flatMap((c) => c.tasks.map((t) => t.id)));
   assert.equal(new Set(ids).size, tasks.length);
   assert.equal(ids.length, tasks.length);
+});
+
+test("manual order crosses due dates and projects and appends newly imported tasks", () => {
+  const tasks = [
+    { ...task("late", "2026-11-06", "Work"), order: 2 },
+    { ...task("future", "2026-11-08", "Study"), order: 0 },
+    { ...task("done", undefined, "Work", true), order: 1 },
+    task("new", "2026-11-07"),
+  ];
+  assert.deepEqual(
+    sortTasks(tasks, "manual", "2026-11-07").map((t) => t.id),
+    ["future", "done", "late", "new"],
+  );
+  assert.deepEqual(
+    tasks.map((t) => t.id),
+    ["late", "future", "done", "new"],
+  );
+});
+
+test("reordering filtered tasks preserves hidden slots, completed tasks, and all task data", () => {
+  const tasks = [
+    { ...task("one"), order: 0 },
+    { ...task("hidden", undefined, "Study"), order: 1 },
+    { ...task("two"), order: 2 },
+    { ...task("done", undefined, "Work", true), order: 3 },
+    { ...task("offscreen"), order: 4 },
+  ];
+  const reordered = reorderTasks(tasks, ["two", "one"], "2026-11-07");
+  assert.deepEqual(
+    reordered.map((t) => t.id),
+    ["two", "hidden", "one", "done", "offscreen"],
+  );
+  assert.deepEqual(
+    reordered.map((t) => t.order),
+    [0, 1, 2, 3, 4],
+  );
+  assert.equal(reordered[3].completed, true);
+  assert.equal(reordered[1].project, "Study");
+  assert.deepEqual(
+    tasks.map((t) => t.order),
+    [0, 1, 2, 3, 4],
+  );
+});
+
+test("automatic sorting leaves manual ranks intact and sorts dates across projects", () => {
+  const tasks = [
+    { ...task("Zulu", "2026-11-10", "Alpha"), priority: 4, order: 0 },
+    { ...task("Bravo", "2026-11-08", "Zulu"), priority: 1, order: 1 },
+    { ...task("Alpha"), priority: 2, order: 2 },
+  ];
+  const ids = (sort: Parameters<typeof sortTasks>[1]) =>
+    sortTasks(tasks, sort, "2026-11-07").map((t) => t.id);
+  assert.deepEqual(ids("due"), ["Bravo", "Zulu", "Alpha"]);
+  assert.deepEqual(ids("priority"), ["Zulu", "Alpha", "Bravo"]);
+  assert.deepEqual(ids("title"), ["Alpha", "Bravo", "Zulu"]);
+  assert.deepEqual(ids("project"), ["Zulu", "Alpha", "Bravo"]);
+  assert.deepEqual(ids("manual"), ["Zulu", "Bravo", "Alpha"]);
+});
+
+test("saved task order rejects duplicate, empty, oversized, and invalid IDs", () => {
+  assert.equal(taskOrderSchema.safeParse({ taskIds: ["local", "todoist"] }).success, true);
+  for (const taskIds of [
+    [],
+    ["same", "same"],
+    [""],
+    ["a".repeat(101)],
+    Array.from({ length: 2001 }, (_, i) => String(i)),
+  ]) {
+    assert.equal(taskOrderSchema.safeParse({ taskIds }).success, false);
+  }
 });
 
 test("import writes only selected active tasks and completion history from chosen or previously imported tasks", () => {

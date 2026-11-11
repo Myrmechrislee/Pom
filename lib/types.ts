@@ -22,6 +22,7 @@ export type Task = {
   source: "local" | "todoist";
   due?: string;
   priority: number;
+  order?: number;
 };
 export type FocusSession = {
   id: string;

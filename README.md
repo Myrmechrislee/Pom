@@ -40,7 +40,8 @@ After changing code, run `docker compose up -d --build` again. After changing cr
 - Timestamp-based timer recovery across reloads and background tabs. Paused time is excluded. Resetting, skipping, or changing modes records the focus time already spent.
 - Five persistent palettes: Sage, Oat milk, Rose, Lavender, and After hours. The saved palette is applied before the page paints, without waiting for workspace sync.
 - Four bundled scenic backgrounds, image imports, and prompt-based AI scene generation. Selecting or creating an image returns to the timer. Editing an AI scene's prompt adds a version to the same saved scene. Use its version picker to restore any previous image and prompt; your selection persists across reloads.
-- A task list grouped by due date and category, with a Due today filter, local tasks, task selection for focus, completion and reopening, and selective Todoist OAuth import/sync.
+- Task lists with drag-and-drop ordering shared by the dashboard, My tasks, and fullscreen. Drag a task’s handle with a mouse or touch, or focus the handle and use the Up/Down arrow keys. Manual order survives reloads and syncs for signed-in users. Dashboard and My tasks offer status/project filters and sorting by manual order, due date, priority, title, or project. Dragging a sorted list switches to manual order while keeping hidden tasks in place. Lists without a custom order start grouped by due date and category.
+- Local tasks, task selection for focus, completion and reopening, and selective Todoist OAuth import/sync.
 - A personal profile with daily, weekly, and monthly charts for focused minutes and task completions, a paginated history of every focus session with editing and deletion, a daily intention, and a streak.
 - Responsive desktop and mobile layouts, keyboard-accessible dialogs, reduced-motion support, and honest empty states.
 
@@ -152,7 +153,7 @@ npx playwright install chromium
 npm run test:e2e
 ```
 
-The browser suite covers timer defaults, task persistence and completion, configurable durations, pause timing, partial sessions, refresh recovery, long breaks, palettes, scenery, mobile layouts, authenticated API boundaries, and the signed-in Todoist/image-generation UI. Signed-in service responses in the UI test are mocked; real Auth0, MongoDB, OpenRouter billing/generation, and Todoist OAuth require your credentials for a live end-to-end check.
+The browser suite covers timer defaults, task persistence and completion, mouse/touch/keyboard task reordering, task filtering and sorting, configurable durations, pause timing, partial sessions, refresh recovery, long breaks, palettes, scenery, mobile layouts, authenticated API boundaries, and the signed-in Todoist/image-generation UI. Signed-in service responses in the UI test are mocked; real Auth0, MongoDB, OpenRouter billing/generation, and Todoist OAuth require your credentials for a live end-to-end check.
 
 To use an already installed Chrome for browser tests, set `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` to its executable.
 If another Pom instance is running on port 3000, set `POM_E2E_PORT=3001` to test the current source on a separate port.

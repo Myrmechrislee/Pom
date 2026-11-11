@@ -7,6 +7,7 @@ import {
   validateBackgroundFile,
 } from "@/lib/backgrounds";
 import { importImageLocally } from "@/lib/import-image";
+import { reorderTasks as applyTaskOrder } from "@/lib/tasks";
 import {
   applySessionQueue,
   readSessionQueue,
@@ -85,6 +86,8 @@ export function useWorkspace(notify: (message: string) => void) {
   const [todoistConnected, setTodoistConnected] = useState(false);
   const [ready, setReady] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [reorderingTasks, setReorderingTasks] = useState(false);
+  const taskOrderPending = useRef(false);
   const storageKey = `pom.workspace.${user?.id || "guest"}`;
   const notifyRef = useRef(notify);
   notifyRef.current = notify;
@@ -280,7 +283,7 @@ export function useWorkspace(notify: (message: string) => void) {
       ).task;
     setData((d) => ({
       ...d,
-      tasks: d.tasks.map((t) => (t.id === task.id ? next : t)),
+      tasks: d.tasks.map((t) => (t.id === task.id ? { ...t, ...next } : t)),
       completions:
         next.completed && next.completedAt
           ? [
@@ -301,6 +304,30 @@ export function useWorkspace(notify: (message: string) => void) {
   const deleteTask = async (task: Task) => {
     if (user) await request("/api/tasks", "DELETE", { id: task.id });
     setData((d) => ({ ...d, tasks: d.tasks.filter((t) => t.id !== task.id) }));
+  };
+  const reorderTasks = async (visibleIds: string[], today: string) => {
+    if (taskOrderPending.current) return;
+    taskOrderPending.current = true;
+    setReorderingTasks(true);
+    const previous = new Map(data.tasks.map((task) => [task.id, task.order]));
+    const ordered = applyTaskOrder(data.tasks, visibleIds, today);
+    const ranks = new Map(ordered.map((task) => [task.id, task.order]));
+    setData((d) => ({
+      ...d,
+      tasks: d.tasks.map((task) => ({ ...task, order: ranks.get(task.id) })),
+    }));
+    try {
+      if (user) await request("/api/tasks", "PUT", { taskIds: ordered.map((task) => task.id) });
+    } catch (error) {
+      setData((d) => ({
+        ...d,
+        tasks: d.tasks.map((task) => ({ ...task, order: previous.get(task.id) })),
+      }));
+      throw error;
+    } finally {
+      taskOrderPending.current = false;
+      setReorderingTasks(false);
+    }
   };
   const recordSession = useCallback(
     async (session: FocusSession) => {
@@ -420,10 +447,12 @@ export function useWorkspace(notify: (message: string) => void) {
     ready,
     todoistConnected,
     syncing,
+    reorderingTasks,
     updatePreferences,
     addTask,
     toggleTask,
     deleteTask,
+    reorderTasks,
     recordSession,
     editSession,
     deleteSession,

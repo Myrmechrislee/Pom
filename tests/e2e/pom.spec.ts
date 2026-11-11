@@ -425,6 +425,22 @@ test("private API routes require login and reject cross-origin writes", async ({
     headers: { origin: "https://other.example" },
   });
   expect(cross.status()).toBe(403);
+  expect(
+    (
+      await request.put("/api/tasks", {
+        data: { taskIds: ["task"] },
+        headers: { origin: baseURL! },
+      })
+    ).status(),
+  ).toBe(401);
+  expect(
+    (
+      await request.put("/api/tasks", {
+        data: { taskIds: ["task"] },
+        headers: { origin: "https://other.example" },
+      })
+    ).status(),
+  ).toBe(403);
   const privateImage = await request.get("/api/backgrounds/00000000-0000-4000-8000-000000000000");
   expect(privateImage.status()).toBe(401);
   expect(privateImage.headers()["cache-control"]).toBe("no-store");

@@ -18,6 +18,13 @@ export const taskSchema = z.object({
   project: z.string().trim().max(80).default("Personal"),
   priority: z.number().int().min(1).max(4).default(1),
 });
+export const taskOrderSchema = z.object({
+  taskIds: z
+    .array(z.string().min(1).max(100))
+    .min(1)
+    .max(2000)
+    .refine((ids) => new Set(ids).size === ids.length, "Task order contains duplicate tasks."),
+});
 export const sessionSchema = z
   .object({
     id: z.uuid(),
