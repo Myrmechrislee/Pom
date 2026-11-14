@@ -4,9 +4,11 @@ export function planTodoistImport<T extends Record<string, unknown>>(
   completed: T[],
   selectedIds: string[],
   importedIds: string[],
+  retainedIds: string[] = [],
 ) {
   const selected = new Set(selectedIds);
   const imported = new Set(importedIds);
+  const retained = new Set(retainedIds);
   const activeIds = new Set(active.map((task) => String(task.id)));
   const availableIds = new Set([...activeIds, ...completed.map((task) => String(task.id))]);
   const completions = completed.filter(
@@ -21,5 +23,6 @@ export function planTodoistImport<T extends Record<string, unknown>>(
         .map((task) => String(task.id)),
     ),
     missingIds: [...selected].filter((id) => !availableIds.has(id)),
+    removedIds: [...imported].filter((id) => !availableIds.has(id) && !retained.has(id)),
   };
 }

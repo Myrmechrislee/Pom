@@ -22,16 +22,20 @@ export default function TaskImportDialog({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [retry, setRetry] = useState(0);
+  const [loaded, setLoaded] = useState(false);
   const today = localDateKey(new Date());
+  const syncOnly = selected.size === 0 && importedIds.length > 0;
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    setLoaded(false);
     setError("");
     void request<{ tasks: Task[] }>("/api/todoist/sync")
       .then(({ tasks }) => {
         if (cancelled) return;
         setTasks(tasks);
+        setLoaded(true);
         setSelected(
           new Set(tasks.filter((task) => isDueToday(task, today)).map((task) => task.id)),
         );
@@ -51,7 +55,7 @@ export default function TaskImportDialog({
   return (
     <Modal
       title="Choose tasks to import."
-      subtitle="Tasks due today are selected. Choose what you want to bring into Pom."
+      subtitle="Tasks due today are selected. Import your choices or sync tasks already in Pom."
       onClose={() => {
         if (!saving) onClose();
       }}
@@ -65,7 +69,7 @@ export default function TaskImportDialog({
         <form
           onSubmit={async (event) => {
             event.preventDefault();
-            if (!selected.size || saving) return;
+            if (!loaded || (!selected.size && !syncOnly) || saving) return;
             setSaving(true);
             setError("");
             try {
@@ -179,11 +183,19 @@ export default function TaskImportDialog({
             <button className="button secondary" type="button" disabled={saving} onClick={onClose}>
               Cancel
             </button>
-            <button className="button primary" type="submit" disabled={saving || !selected.size}>
+            <button
+              className="button primary"
+              type="submit"
+              disabled={saving || !loaded || (!selected.size && !syncOnly)}
+            >
               {saving && <LoaderCircle size={16} className="spin" />}
               {saving
-                ? "Importing…"
-                : `Import ${selected.size} ${selected.size === 1 ? "task" : "tasks"}`}
+                ? syncOnly
+                  ? "Syncing…"
+                  : "Importing…"
+                : syncOnly
+                  ? "Sync tasks"
+                  : `Import ${selected.size} ${selected.size === 1 ? "task" : "tasks"}`}
             </button>
           </div>
         </form>

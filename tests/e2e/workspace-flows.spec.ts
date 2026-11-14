@@ -326,6 +326,84 @@ test("Todoist supports loading and import retries, and selects nothing when no t
   expect(imports).toBe(2);
 });
 
+test("Todoist can sync deleted tasks with nothing to import, with preview and save retries", async ({
+  page,
+}) => {
+  const workspace = emptyWorkspace();
+  const local = { ...task("local", "Keep local task", "Personal"), source: "local" as const };
+  const olderCompleted = {
+    ...task("older", "Older completed task", "Work"),
+    completed: true,
+    completedAt: "2026-01-01T08:00:00.000Z",
+  };
+  workspace.tasks = [task("deleted", "Deleted in Todoist", "Work"), local, olderCompleted];
+  workspace.completions = [
+    {
+      id: "previous-completion",
+      taskId: "deleted",
+      title: "Deleted in Todoist",
+      completedAt: "2026-01-02T08:00:00.000Z",
+    },
+  ];
+  const history = [...workspace.completions];
+  let previewUnavailable = true;
+  let syncs = 0;
+  await page.route("**/api/todoist/sync", (route) => {
+    if (route.request().method() === "GET")
+      return previewUnavailable
+        ? route.fulfill({ status: 502, json: { error: "Todoist is unavailable." } })
+        : route.fulfill({ json: { tasks: [] } });
+    expect(route.request().postDataJSON()).toEqual({ taskIds: [] });
+    syncs++;
+    if (syncs === 1)
+      return route.fulfill({ status: 502, json: { error: "Couldn’t sync. Try again." } });
+    workspace.tasks = [local, olderCompleted];
+    return route.fulfill({
+      json: { tasks: workspace.tasks, completions: workspace.completions, count: 0 },
+    });
+  });
+  await signedIn(page, workspace);
+  await page.getByRole("button", { name: /^My tasks/ }).click();
+  await expect(page.getByText("Deleted in Todoist", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Sync Todoist", exact: true }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByRole("alert")).toHaveText("Todoist is unavailable.");
+  await expect(dialog.getByRole("button", { name: "Sync tasks", exact: true })).toBeDisabled();
+  expect(syncs).toBe(0);
+  previewUnavailable = false;
+  await dialog.getByRole("button", { name: "Try again", exact: true }).click();
+  await expect(dialog.getByText("No active Todoist tasks to import.")).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Sync tasks", exact: true })).toBeEnabled();
+  await dialog.getByRole("button", { name: "Cancel", exact: true }).click();
+  expect(syncs).toBe(0);
+  await expect(page.getByText("Deleted in Todoist", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Sync Todoist", exact: true }).click();
+  await dialog.getByRole("button", { name: "Sync tasks", exact: true }).click();
+  await expect(dialog.getByRole("alert")).toHaveText("Couldn’t sync. Try again.");
+  await expect(page.getByText("Deleted in Todoist", { exact: true })).toBeVisible();
+  await dialog.getByRole("button", { name: "Sync tasks", exact: true }).click();
+  await expect(dialog).not.toBeVisible();
+  await expect(page.getByText("Deleted in Todoist", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("Keep local task", { exact: true })).toBeVisible();
+  await expect(page.locator(".toast")).toHaveText("Your Todoist tasks are synced.");
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const saved = JSON.parse(localStorage.getItem("pom.workspace.test-user") || "{}");
+        return {
+          taskIds: saved.tasks?.map((entry: Task) => entry.id),
+          completions: saved.completions,
+        };
+      }),
+    )
+    .toEqual({ taskIds: ["local", "older"], completions: history });
+  await page.reload();
+  await page.getByRole("button", { name: /^My tasks/ }).click();
+  await expect(page.getByText("Deleted in Todoist", { exact: true })).toHaveCount(0);
+  await expect(page.getByText("Keep local task", { exact: true })).toBeVisible();
+  expect(syncs).toBe(2);
+});
+
 test("AI revisions stay in one scene, preserve every version, and persist the chosen image and prompt", async ({
   page,
 }) => {

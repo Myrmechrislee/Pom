@@ -374,7 +374,11 @@ export function useWorkspace(notify: (message: string) => void) {
         tasks: result.tasks,
         completions: result.completions || d.completions,
       }));
-      notify(`${result.count} Todoist ${result.count === 1 ? "task" : "tasks"} imported.`);
+      notify(
+        result.count
+          ? `${result.count} Todoist ${result.count === 1 ? "task" : "tasks"} imported.`
+          : "Your Todoist tasks are synced.",
+      );
     } finally {
       setSyncing(false);
     }

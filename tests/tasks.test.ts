@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { groupTasks, isDueToday, reorderTasks, sortTasks } from "../lib/tasks";
-import { taskOrderSchema } from "../lib/validation";
+import { taskOrderSchema, todoistPageSchema, todoistSyncSchema } from "../lib/validation";
 import { planTodoistImport } from "../lib/todoist-import";
 import type { Task } from "../lib/types";
 
@@ -152,4 +152,71 @@ test("import recognizes tasks completed after preview and detects IDs absent fro
   assert.deepEqual(plan.active, [{ id: 123 }]);
   assert.deepEqual([...plan.completedTaskIds], ["just-completed"]);
   assert.deepEqual(plan.missingIds, ["missing"]);
+});
+
+test("sync removes missing imports while keeping unchecked active tasks, completions, and older history", () => {
+  const plan = planTodoistImport(
+    [{ id: "chosen" }, { id: "unchecked" }, { id: 123 }],
+    [{ id: "completed" }, { id: "unrelated" }],
+    ["chosen"],
+    ["unchecked", "123", "completed", "deleted", "deleted-completed", "older-completed"],
+    ["older-completed"],
+  );
+  assert.deepEqual(plan.removedIds, ["deleted", "deleted-completed"]);
+  assert.deepEqual(plan.active, [{ id: "chosen" }]);
+  assert.deepEqual(plan.completions, [{ id: "completed" }]);
+  assert.deepEqual(plan.missingIds, []);
+});
+
+test("sync cleans up the last deleted import with an empty provider workspace and no selection", () => {
+  const plan = planTodoistImport([], [], [], ["deleted", "older-completed"], ["older-completed"]);
+  assert.deepEqual(plan.removedIds, ["deleted"]);
+  assert.deepEqual(plan.active, []);
+  assert.deepEqual(plan.completions, []);
+  assert.deepEqual(plan.missingIds, []);
+  assert.deepEqual(planTodoistImport([], [], [], []).removedIds, []);
+});
+
+test("Todoist sync accepts an empty import selection and still validates supplied IDs", () => {
+  assert.deepEqual(todoistSyncSchema.parse({ taskIds: [] }), { taskIds: [] });
+  assert.equal(todoistSyncSchema.safeParse({ taskIds: ["existing"] }).success, true);
+  for (const value of [
+    {},
+    { taskIds: [""] },
+    { taskIds: ["a".repeat(101)] },
+    { taskIds: [123] },
+    { taskIds: Array.from({ length: 2001 }, (_, i) => String(i)) },
+  ])
+    assert.equal(todoistSyncSchema.safeParse(value).success, false);
+});
+
+test("provider pages require an explicit list and valid IDs before planning task removal", () => {
+  const records = [{ id: "one", content: "Keep task data" }, { id: 123 }];
+  for (const value of [
+    records,
+    { results: records, next_cursor: null },
+    { items: records, next_cursor: null },
+  ])
+    assert.deepEqual(todoistPageSchema.parse(value), { records, nextCursor: null });
+  assert.deepEqual(todoistPageSchema.parse({ items: [], next_cursor: "next" }), {
+    records: [],
+    nextCursor: "next",
+  });
+  assert.deepEqual(todoistPageSchema.parse({ results: [], next_cursor: null }), {
+    records: [],
+    nextCursor: null,
+  });
+  for (const value of [
+    {},
+    null,
+    { results: [] },
+    { items: [] },
+    { results: null },
+    { results: "incomplete" },
+    { items: [], next_cursor: 123 },
+    { items: [{}] },
+    { results: [{ id: "" }] },
+    [{ content: "Missing ID" }],
+  ])
+    assert.equal(todoistPageSchema.safeParse(value).success, false);
 });

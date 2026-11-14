@@ -25,6 +25,23 @@ export const taskOrderSchema = z.object({
     .max(2000)
     .refine((ids) => new Set(ids).size === ids.length, "Task order contains duplicate tasks."),
 });
+export const todoistSyncSchema = z.object({
+  taskIds: z.array(z.string().min(1).max(100)).max(2000),
+});
+const todoistRecords = z.array(
+  z.object({ id: z.union([z.string().min(1), z.number().int()]) }).catchall(z.unknown()),
+);
+const todoistCursor = z.string().nullable();
+export const todoistPageSchema = z
+  .union([
+    todoistRecords,
+    z.object({ results: todoistRecords, next_cursor: todoistCursor }),
+    z.object({ items: todoistRecords, next_cursor: todoistCursor }),
+  ])
+  .transform((page) => ({
+    records: Array.isArray(page) ? page : "results" in page ? page.results : page.items,
+    nextCursor: Array.isArray(page) ? null : page.next_cursor || null,
+  }));
 export const sessionSchema = z
   .object({
     id: z.uuid(),

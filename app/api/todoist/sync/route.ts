@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server";
 import { api, ApiError, body, db, requireUser, todoistToken } from "@/lib/server";
-import { z } from "zod";
 import { planTodoistImport } from "@/lib/todoist-import";
+import { todoistPageSchema, todoistSyncSchema } from "@/lib/validation";
 
 async function getAll(token: string, path: string, query: Record<string, string> = {}) {
   const results: Record<string, unknown>[] = [];
+  const cursors = new Set<string>();
   let cursor: string | null = null;
   do {
     const url = new URL(`https://api.todoist.com/api/v1/${path}`);
@@ -13,13 +14,17 @@ async function getAll(token: string, path: string, query: Record<string, string>
     if (cursor) url.searchParams.set("cursor", cursor);
     const response = await fetch(url, {
       headers: { Authorization: `Bearer ${token}` },
+      cache: "no-store",
       signal: AbortSignal.timeout(15000),
     });
     if (!response.ok)
       throw new ApiError("Todoist couldn’t sync. Please try again or reconnect your account.", 502);
-    const data = await response.json();
-    results.push(...(Array.isArray(data) ? data : data.results || data.items || []));
-    cursor = data.next_cursor || null;
+    const page = todoistPageSchema.safeParse(await response.json());
+    if (!page.success || (page.data.nextCursor && cursors.has(page.data.nextCursor)))
+      throw new ApiError("Todoist returned an incomplete response. Please try syncing again.", 502);
+    results.push(...page.data.records);
+    cursor = page.data.nextCursor;
+    if (cursor) cursors.add(cursor);
     if (results.length > 10000)
       throw new ApiError("This Todoist workspace is too large to import in one sync.", 413);
   } while (cursor);
@@ -46,36 +51,31 @@ export const GET = api(async () => {
 
 export const POST = api(async (request) => {
   const userId = await requireUser();
-  const { taskIds } = z
-    .object({
-      taskIds: z
-        .array(z.string().min(1).max(100))
-        .min(1, "Choose at least one task to import.")
-        .max(2000),
-    })
-    .parse(await body(request));
+  const { taskIds } = todoistSyncSchema.parse(await body(request));
   const token = await todoistToken(userId),
     database = await db();
+  const [tasks, projects] = await Promise.all([getAll(token, "tasks"), getAll(token, "projects")]);
+  // Include completions that happened while the active-task pages were loading.
   const until = new Date(),
     since = new Date(until.getTime() - 89 * 86400000);
-  const [tasks, projects, completed] = await Promise.all([
-    getAll(token, "tasks"),
-    getAll(token, "projects"),
-    getAll(token, "tasks/completed/by_completion_date", {
-      since: since.toISOString(),
-      until: until.toISOString(),
-    }),
-  ]);
+  const completed = await getAll(token, "tasks/completed/by_completion_date", {
+    since: since.toISOString(),
+    until: until.toISOString(),
+  });
   const names = new Map(projects.map((p) => [String(p.id), String(p.name)]));
   const collection = database.collection("tasks");
   const imported = await collection
-    .find({ userId, source: "todoist" }, { projection: { id: 1 } })
+    .find({ userId, source: "todoist" }, { projection: { id: 1, completed: 1, completedAt: 1 } })
     .toArray();
   const plan = planTodoistImport(
     tasks,
     completed,
     taskIds,
     imported.map((t) => String(t.id)),
+    // Absence from a bounded history is not evidence that an older completion was deleted.
+    imported
+      .filter((t) => t.completed && (!t.completedAt || t.completedAt < since.toISOString()))
+      .map((t) => String(t.id)),
   );
   if (plan.missingIds.length)
     throw new ApiError(
@@ -166,6 +166,17 @@ export const POST = api(async (request) => {
       { upsert: true },
     );
   }
+  if (plan.removedIds.length)
+    await collection.deleteMany({
+      userId,
+      source: "todoist",
+      id: { $in: plan.removedIds },
+      // Keep tasks completed locally while this sync was in flight.
+      $or: [
+        { completed: { $ne: true } },
+        { completedAt: { $gte: since.toISOString(), $lt: until.toISOString() } },
+      ],
+    });
   const all = await collection
     .find({ userId }, { projection: { _id: 0, userId: 0 } })
     .sort({ createdAt: 1 })
